@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "stack_vec"
+name = "static_vec"
 version = "0.1.0"

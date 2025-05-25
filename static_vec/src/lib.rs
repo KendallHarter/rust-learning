@@ -28,7 +28,7 @@ impl<T, const N: usize> StaticVec<T, N> {
    }
 
    pub fn push(&mut self, value: T) {
-      if self.size == N {
+      if self.size >= N {
          panic!("doot");
       }
       self.data[self.size] = std::mem::MaybeUninit::<T>::new(value);
@@ -36,11 +36,62 @@ impl<T, const N: usize> StaticVec<T, N> {
    }
 }
 
+#[allow(unused_macros)]
+macro_rules! count_args {
+   () => { 0 };
+   ($_first:expr, $( $rest:expr ),*) => {
+      1 + count_args!($($rest),*)
+   };
+}
+
+#[macro_export]
+macro_rules! static_vec {
+   ($capacity:expr => $( $values:expr ),*) => {
+      {
+         const {
+            assert!(count_args!($($values,),*) <= $capacity);
+         }
+         #[allow(unused_mut)]
+         let mut to_ret = StaticVec::<_, $capacity>::new();
+         $(
+            to_ret.push($values);
+         )*
+         to_ret
+      }
+   };
+   ($( $values: expr ),*) => {
+      {
+         const CAPACITY: usize = count_args!($($values,),*);
+         static_vec![CAPACITY => $($values),*]
+      }
+   };
+   ($capacity:expr => $value:expr; $size:expr) => {
+      {
+         const {
+            assert!($size <= $capacity);
+         }
+         #[allow(unused_mut)]
+         let mut to_ret = StaticVec::<_, $capacity>::new();
+         let val = $value;
+         for _ in 0..$size {
+            to_ret.push(val);
+         }
+         to_ret
+      }
+   };
+   ($value:expr; $size:expr) => {
+      {
+         static_vec![$size => $value; $size]
+      }
+   };
+}
+
 impl<T, const N: usize> std::ops::Deref for StaticVec<T, N> {
    type Target = [T];
 
    fn deref(&self) -> &Self::Target {
       // SAFETY: 0..self.size is initialized
+      //         std::mem::MaybeUninit has same layout as T
       unsafe { std::slice::from_raw_parts(self.data.as_ptr().cast::<T>(), self.size) }
    }
 }
@@ -167,7 +218,7 @@ mod tests {
 
    #[test]
    fn push() {
-      let mut v = StaticVec::<i32, 10>::new();
+      let mut v = static_vec![5 =>];
       v.push(1);
       v.push(2);
       v.push(3);
@@ -177,10 +228,21 @@ mod tests {
 
    #[test]
    fn into_iter() {
-      let mut v = StaticVec::<i32, 10>::new();
-      v.push(1);
-      for val in v {
-         assert_eq!(val, 1);
+      macro_rules! do_loop {
+         ($loop_expr:expr, $expected_val:expr) => {
+            let mut iters = 0;
+            for val in $loop_expr {
+               assert_eq!(val, $expected_val);
+               iters += 1;
+            }
+            assert_eq!(iters, 1);
+         }
       }
+
+      let mut v = static_vec![1];
+      // Test out each kind of into_iter
+      do_loop!(&v, &1);
+      do_loop!(&mut v, &mut 1);
+      do_loop!(v, 1);
    }
 }
