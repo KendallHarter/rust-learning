@@ -20,6 +20,43 @@ impl<T, const N: usize> StaticVec<T, N> {
       unsafe { std::ptr::read(self.data[self.size].as_ptr()) }
    }
 
+   pub fn insert(&mut self, index: usize, element: T) {
+      if index > self.size {
+         panic!("hoot");
+      }
+      if self.size >= N {
+         panic!("aaaa");
+      }
+      if index == self.size {
+         self.push(element);
+      } else {
+         // There's probably a better way of doing this?
+         // Go from the back, swapping values with the one greater index
+         // This creates an uninitialized member at i ready for insertion
+         let mut i = self.size;
+         while i > index {
+            self.data.swap(i, i + 1);
+            i -= 1;
+         }
+         // Swap one last time
+         self.data.swap(index, index + 1);
+         self.size += 1;
+         self.data[index] = std::mem::MaybeUninit::<T>::new(element);
+      }
+   }
+
+   pub fn remove(&mut self, index: usize) -> T {
+      if index >= self.size {
+         panic!("aaa");
+      }
+      for i in index..self.size - 1 {
+         self.data.swap(i, i + 1);
+      }
+      self.size -= 1;
+      // SAFETY: self.data[self.size] is initialized
+      unsafe { std::ptr::read(self.data[self.size].as_ptr()) }
+   }
+
    pub fn new() -> StaticVec<T, N> {
       StaticVec::<T, N> {
          data: [const { std::mem::MaybeUninit::<T>::uninit() }; N],
@@ -39,7 +76,7 @@ impl<T, const N: usize> StaticVec<T, N> {
 #[allow(unused_macros)]
 macro_rules! count_args {
    () => { 0 };
-   ($_first:expr, $( $rest:expr ),*) => {
+   ($_first:expr $(, $rest:expr )* $(,)?) => {
       1 + count_args!($($rest),*)
    };
 }
@@ -49,7 +86,7 @@ macro_rules! static_vec {
    ($capacity:expr => $( $values:expr ),*) => {
       {
          const {
-            assert!(count_args!($($values,),*) <= $capacity);
+            assert!(count_args!($($values),*) <= $capacity);
          }
          #[allow(unused_mut)]
          let mut to_ret = StaticVec::<_, $capacity>::new();
@@ -61,7 +98,7 @@ macro_rules! static_vec {
    };
    ($( $values: expr ),*) => {
       {
-         const CAPACITY: usize = count_args!($($values,),*);
+         const CAPACITY: usize = count_args!($($values),*);
          static_vec![CAPACITY => $($values),*]
       }
    };
@@ -227,6 +264,28 @@ mod tests {
    }
 
    #[test]
+   fn init() {
+      let v = static_vec![5 => 1, 2, 3];
+      assert_eq!(v, [1, 2, 3]);
+   }
+
+   #[test]
+   fn insert() {
+      let mut v = static_vec![5 => 1, 2, 3];
+      v.insert(0, 0);
+      assert_eq!(v, [0, 1, 2, 3]);
+      v.insert(4, 4);
+      assert_eq!(v, [0, 1, 2, 3, 4]);
+   }
+
+   #[test]
+   fn remove() {
+      let mut v = static_vec![0, 1, 2, 3, 4];
+      assert_eq!(v.remove(0), 0);
+      assert_eq!(v, [1, 2, 3, 4]);
+   }
+
+   #[test]
    fn into_iter() {
       macro_rules! do_loop {
          ($loop_expr:expr, $expected_val:expr) => {
@@ -236,7 +295,7 @@ mod tests {
                iters += 1;
             }
             assert_eq!(iters, 1);
-         }
+         };
       }
 
       let mut v = static_vec![1];
