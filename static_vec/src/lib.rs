@@ -10,6 +10,14 @@ impl<T, const N: usize> StaticVec<T, N> {
       self.size = new_size;
    }
 
+   pub fn as_slice(&self) -> &[T] {
+      &self[..]
+   }
+
+   pub fn as_mut_slice(&mut self) -> &mut [T] {
+      &mut self[..]
+   }
+
    pub fn swap_remove(&mut self, index: usize) -> T {
       if index >= self.size {
          panic!("blah");
@@ -55,6 +63,28 @@ impl<T, const N: usize> StaticVec<T, N> {
       self.size -= 1;
       // SAFETY: self.data[self.size] is initialized
       unsafe { std::ptr::read(self.data[self.size].as_ptr()) }
+   }
+
+   pub fn retain<F>(&mut self, mut f: F)
+   where
+      F: FnMut(&T) -> bool
+   {
+      for i in (0..self.size).rev() {
+         if !f(&self[i]) {
+            self.remove(i);
+         }
+      }
+   }
+
+   pub fn retain_mut<F>(&mut self, mut f: F)
+   where
+      F: FnMut(&mut T) -> bool
+   {
+      for i in (0..self.size).rev() {
+         if !f(&mut self[i]) {
+            self.remove(i);
+         }
+      }
    }
 
    pub fn new() -> StaticVec<T, N> {
@@ -303,5 +333,26 @@ mod tests {
       do_loop!(&v, &1);
       do_loop!(&mut v, &mut 1);
       do_loop!(v, 1);
+   }
+
+   #[test]
+   fn retain() {
+      let mut v = static_vec![1, 2, 3, 4, 5];
+      v.retain(|&x| x % 2 == 0);
+      assert_eq!(v, [2, 4]);
+   }
+
+   #[test]
+   fn retain_mut() {
+      let mut v = static_vec![1, 2, 3, 4, 5];
+      v.retain_mut(|x| {
+         if *x % 2 == 0 {
+            *x *= 2;
+            true
+         }
+         else {
+            false
+         }
+      });
    }
 }
