@@ -6,6 +6,13 @@ pub struct StaticVec<T, const CAPACITY: usize> {
 }
 
 impl<T, const N: usize> StaticVec<T, N> {
+   pub fn new() -> StaticVec<T, N> {
+      StaticVec::<T, N> {
+         data: [const { std::mem::MaybeUninit::<T>::uninit() }; N],
+         size: 0,
+      }
+   }
+
    pub unsafe fn set_len(&mut self, new_size: usize) {
       self.size = new_size;
    }
@@ -87,10 +94,38 @@ impl<T, const N: usize> StaticVec<T, N> {
       }
    }
 
-   pub fn new() -> StaticVec<T, N> {
-      StaticVec::<T, N> {
-         data: [const { std::mem::MaybeUninit::<T>::uninit() }; N],
-         size: 0,
+   pub fn dedup_by_key<F, K>(&mut self, mut key: F)
+   where
+      F: FnMut(&mut T) -> K,
+      K: PartialEq
+   {
+      let mut comp_val = key(&mut self[0]);
+      let mut i = 1;
+      while i < self.size {
+         if comp_val == key(&mut self[i]) {
+            self.remove(i);
+         }
+         else {
+            comp_val = key(&mut self[i]);
+            i += 1;
+         }
+      }
+   }
+
+   pub fn dedup_by<F>(&mut self, mut f: F)
+   where
+      F: FnMut(&mut T, &mut T) -> bool
+   {
+      let mut i = 0;
+      while i < self.size - 1 {
+         // SAFETY: i and i + 1 are valid indexes
+         let [a, b] = unsafe { self.as_mut_slice().get_disjoint_unchecked_mut([i, i + 1]) };
+         if f(a, b) {
+            self.remove(i);
+         }
+         else {
+            i += 1;
+         }
       }
    }
 
@@ -100,6 +135,32 @@ impl<T, const N: usize> StaticVec<T, N> {
       }
       self.data[self.size] = std::mem::MaybeUninit::<T>::new(value);
       self.size += 1;
+   }
+
+   pub fn pop(&mut self) -> Option<T> {
+      if self.size == 0 {
+         None
+      }
+      else {
+         self.size -= 1;
+         // SAFETY: self.size is initialized
+         Some(unsafe { std::ptr::read(self.data[self.size].as_ptr()) })
+      }
+   }
+
+   pub fn pop_if<F>(&mut self, f: F) -> Option<T>
+   where
+      F: FnOnce(&mut T) -> bool
+   {
+      let size = self.size - 1;
+      if self.size == 0 || !f(&mut self[size]) {
+         None
+      }
+      else {
+         self.size -= 1;
+         // SAFETY: self.size is initialized
+         Some(unsafe { std::ptr::read(self.data[self.size].as_ptr()) })
+      }
    }
 }
 
@@ -137,7 +198,6 @@ macro_rules! static_vec {
          const {
             assert!($size <= $capacity);
          }
-         #[allow(unused_mut)]
          let mut to_ret = StaticVec::<_, $capacity>::new();
          let val = $value;
          for _ in 0..$size {
@@ -297,6 +357,8 @@ mod tests {
    fn init() {
       let v = static_vec![5 => 1, 2, 3];
       assert_eq!(v, [1, 2, 3]);
+      let v = static_vec![1; 3];
+      assert_eq!(v, [1, 1, 1]);
    }
 
    #[test]
@@ -354,5 +416,35 @@ mod tests {
             false
          }
       });
+   }
+
+   #[test]
+   fn dedup_by_key() {
+      let mut v = static_vec![10, 20, 21, 30, 31, 40];
+      v.dedup_by_key(|x| *x / 10);
+      assert_eq!(v, [10, 20, 30, 40]);
+   }
+
+   #[test]
+   fn dedup_by() {
+      let mut v = static_vec![5; 10];
+      v.dedup_by(|a, b| a == b);
+      assert_eq!(v, [5]);
+   }
+
+   #[test]
+   fn pop() {
+      let mut v = static_vec![1, 2, 3];
+      assert_eq!(v.pop(), Some(3));
+      assert_eq!(v, [1, 2]);
+   }
+
+   #[test]
+   fn pop_if() {
+      let mut v = static_vec![1, 2, 3];
+      let f = |x: &mut i32| *x == 3;
+      assert_eq!(v.pop_if(f), Some(3));
+      assert_eq!(v.pop_if(f), None);
+      assert_eq!(v, [1, 2]);
    }
 }
